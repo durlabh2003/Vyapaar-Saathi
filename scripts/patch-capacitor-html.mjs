@@ -101,8 +101,23 @@ tags.push(
   `  <script type="module" src="/assets/${scriptSrc}"></script>`
 );
 
-// Read and patch index.html
-let html = fs.readFileSync(indexPath, "utf-8");
+// Read and patch index.html (or create if not present)
+let html = fs.existsSync(indexPath)
+  ? fs.readFileSync(indexPath, "utf-8")
+  : `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vyapaar Saathi — Voice Business Khata</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="alternate icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="manifest" href="/manifest.json" />
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>`;
 
 // Remove old injected tags if re-patching
 html = html.replace(
