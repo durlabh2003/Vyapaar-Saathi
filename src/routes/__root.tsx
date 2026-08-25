@@ -144,6 +144,11 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
   useEffect(() => {
+    // Dismiss startup loading indicator as soon as React takes over
+    if (typeof document !== "undefined") {
+      document.getElementById("cap-loading")?.remove();
+    }
+
     // Only register SW in real browser context — skip in Capacitor WebView
     const isCapacitor =
       typeof window !== "undefined" &&
