@@ -36,6 +36,7 @@ import { daysAgo, money } from "@/lib/format";
 import { useT } from "@/lib/i18n";
 
 export const Route = createFileRoute("/_authenticated/")({
+  ssr: false,
   head: () => ({
     meta: [
       { title: "Home — Vyapaar Saathi" },

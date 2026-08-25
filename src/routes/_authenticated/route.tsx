@@ -16,8 +16,12 @@ const mockUser: User = {
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
   beforeLoad: async () => {
-    const { data } = await supabase.auth.getUser();
-    return { user: data?.user ?? mockUser };
+    try {
+      const { data } = await supabase.auth.getUser();
+      return { user: data?.user ?? mockUser };
+    } catch {
+      return { user: mockUser };
+    }
   },
   component: AuthenticatedLayout,
 });
