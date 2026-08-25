@@ -13,12 +13,22 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const publicDir = path.resolve(__dirname, "../.output/public");
+const possiblePublicDirs = [
+  path.resolve(__dirname, "../.output/public"),
+  path.resolve(__dirname, "../.vercel/output/static"),
+  path.resolve(__dirname, "../dist"),
+];
+
+const publicDir = possiblePublicDirs.find((d) => fs.existsSync(d) && fs.existsSync(path.join(d, "assets"))) || possiblePublicDirs[0];
 const assetsDir = path.join(publicDir, "assets");
 const indexPath = path.join(publicDir, "index.html");
 
-console.log("🔧 Patching index.html for Capacitor...");
+console.log(`🔧 Patching index.html (target: ${publicDir})...`);
+
+if (!fs.existsSync(assetsDir)) {
+  console.warn(`⚠️  Assets directory not found at ${assetsDir} — skipping patch.`);
+  process.exit(0);
+}
 
 // Read the assets directory
 const assetFiles = fs.readdirSync(assetsDir);
@@ -31,8 +41,8 @@ const mainBundle = assetFiles.find((f) => f.match(/^index-.*\.js$/));
 const clientBootstrap = assetFiles.find((f) => f.match(/^client-.*\.js$/));
 
 if (!mainBundle && !clientBootstrap) {
-  console.error("❌ Could not find main JS bundle in .output/public/assets/");
-  process.exit(1);
+  console.warn("⚠️  Could not find main JS bundle in assets/ — skipping patch.");
+  process.exit(0);
 }
 
 console.log(`  📦 Main bundle:      ${mainBundle}`);
