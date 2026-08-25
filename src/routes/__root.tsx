@@ -8,12 +8,18 @@ import {
   Scripts,
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
+import { createRoot } from "react-dom/client";
 
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/lib/auth";
 import { I18nProvider } from "@/lib/i18n";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+
+// Keep createRoot in the production bundle (prevents Vite tree-shaking)
+if (typeof window !== "undefined") {
+  (window as unknown as { __keepCreateRoot?: unknown }).__keepCreateRoot = createRoot;
+}
 
 function NotFoundComponent() {
   return (
@@ -98,7 +104,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: "https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700&family=Mukta:wght@400;500;600;700&display=swap",
       },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+      { rel: "alternate icon", href: "/favicon.ico", type: "image/x-icon" },
       { rel: "manifest", href: "/manifest.json" },
     ],
   }),
@@ -109,6 +116,17 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 });
 
 function RootShell({ children }: { children: ReactNode }) {
+  // In Capacitor WebView, React renders into #root via createRoot (CSR).
+  // Skip the html/head/body wrapper — the static index.html provides that structure.
+  // On the server (SSR for web), window is undefined so this check is always false.
+  const isCapacitor =
+    typeof window !== "undefined" &&
+    !!(window as unknown as { Capacitor?: unknown }).Capacitor;
+
+  if (isCapacitor) {
+    return <>{children}</>;
+  }
+
   return (
     <html lang="en">
       <head>
@@ -126,7 +144,12 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
   useEffect(() => {
-    if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+    // Only register SW in real browser context — skip in Capacitor WebView
+    const isCapacitor =
+      typeof window !== "undefined" &&
+      !!(window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor
+        ?.isNativePlatform?.();
+    if (!isCapacitor && typeof window !== "undefined" && "serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js").catch(() => {});
     }
   }, []);

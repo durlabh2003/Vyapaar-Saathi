@@ -10,16 +10,18 @@ const TXN_COLUMNS =
   "id,business_id,type,amount,amount_paid,payment_method,category,customer_id,vendor_id,party_name,notes,occurred_at,source,ai_confidence,created_at";
 
 export function useBusiness() {
-  const { user } = useAuth();
+  const { session, user } = useAuth();
   return useQuery({
-    queryKey: ["business", user?.id],
+    queryKey: ["business", session?.user?.id ?? user?.id],
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("businesses")
-        .select("*")
-        .order("created_at", { ascending: true })
+      let query = supabase.from("businesses").select("*");
+      if (session?.user?.id) {
+        query = query.eq("owner_id", session.user.id);
+      }
+      const { data, error } = await query
+        .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
       if (error) throw error;
@@ -161,6 +163,8 @@ export function useCreateTransaction() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["customers"] });
+      queryClient.invalidateQueries({ queryKey: ["vendors"] });
     },
   });
 }

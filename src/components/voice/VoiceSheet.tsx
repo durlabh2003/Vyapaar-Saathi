@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { Mic, MicOff, Pencil, Check, Send, Square, Package, BellRing } from "lucide-react";
+import { Mic, MicOff, Pencil, Check, Send, Square, Package, BellRing, Volume2, VolumeX, Pause, Play } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,7 @@ import {
 import { money } from "@/lib/format";
 import { useI18n, useT } from "@/lib/i18n";
 import { parseLocally, type Interpretation } from "@/lib/voice/localParser";
-import { speakText } from "@/lib/voice/tts";
+import { speakText, stopSpeaking, isSpeaking } from "@/lib/voice/tts";
 import { useVoiceRecorder } from "@/lib/voice/useVoiceRecorder";
 import type { ManualDraft } from "@/components/app/ManualEntrySheet";
 
@@ -68,9 +68,13 @@ export function VoiceSheet({
   const [dueInput, setDueInput] = useState(toLocalInput());
   const [saving, setSaving] = useState(false);
 
+  const [speaking, setSpeaking] = useState(false);
+
   useEffect(() => {
     if (!open) {
       recorder.cancel();
+      stopSpeaking();
+      setSpeaking(false);
       return;
     }
     setStage("capture");
@@ -78,6 +82,7 @@ export function VoiceSheet({
     setHeard("");
     setResult(null);
     setAnswer("");
+    setSpeaking(false);
     recorder.reset();
     if (recorder.supported) void recorder.start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -90,25 +95,58 @@ export function VoiceSheet({
     setStage("thinking");
 
     let interpretation: Interpretation;
-    try {
-      interpretation = (await interpret({
-        data: { text: trimmed, businessId: business.id },
-      })) as Interpretation;
-    } catch {
+    const isCapacitor =
+      typeof window !== "undefined" &&
+      !!(window as unknown as { Capacitor?: unknown }).Capacitor;
+
+    if (!isCapacitor) {
+      try {
+        const res = await interpret({
+          data: {
+            text: trimmed,
+            businessId: business.id,
+          },
+        });
+        interpretation = res as Interpretation;
+      } catch {
+        interpretation = parseLocally(trimmed);
+      }
+    } else {
       interpretation = parseLocally(trimmed);
     }
 
     if (interpretation.spokenResponse) {
-      speakText(interpretation.spokenResponse, interpretation.language ?? "hi-en");
+      setSpeaking(true);
+      speakText(interpretation.spokenResponse, interpretation.language ?? locale, () => setSpeaking(false));
     }
 
     if (interpretation.kind === "question") {
+      if (!isCapacitor) {
+        try {
+          const response = await ask({
+            data: {
+              businessId: business.id,
+              question: interpretation.question ?? trimmed,
+              locale: locale,
+            },
+          });
+          setAnswer(response.answer);
+          setSpeaking(true);
+          speakText(response.answer, interpretation.language ?? locale, () => setSpeaking(false));
+          setStage("answer");
+          return;
+        } catch {
+          // fall through to client snapshot
+        }
+      }
       try {
-        const response = await ask({
-          data: { businessId: business.id, question: interpretation.question ?? trimmed },
-        });
+        const { loadSnapshot, answerQuestion } = await import("@/lib/ai/answer.server");
+        const { supabase } = await import("@/integrations/supabase/client");
+        const snapshot = await loadSnapshot(supabase, business.id);
+        const response = await answerQuestion(interpretation.question ?? trimmed, snapshot, locale);
         setAnswer(response.answer);
-        speakText(response.answer, interpretation.language ?? "hi-en");
+        setSpeaking(true);
+        speakText(response.answer, interpretation.language ?? locale, () => setSpeaking(false));
       } catch {
         setAnswer(t("common.error"));
       }
@@ -151,31 +189,36 @@ export function VoiceSheet({
     } as never);
   };
 
-  /** Stop the mic, check for browser transcript, or upload clip for server transcription. */
   const stopAndProcess = async () => {
     const { clip, transcript: browserTranscript } = await recorder.stop();
+    const activeText = (browserTranscript || recorder.liveTranscript || "").trim();
 
-    if (browserTranscript && browserTranscript.trim()) {
-      await handleText(browserTranscript.trim());
+    const isCapacitor =
+      typeof window !== "undefined" &&
+      !!(window as unknown as { Capacitor?: unknown }).Capacitor;
+
+    if (clip) {
+      setStage("transcribing");
+      try {
+        const body = new FormData();
+        body.append("audio", clip, "recording.wav");
+        body.append("language", locale === "hi-en" ? "" : locale);
+        const { text } = await transcribe({ data: body });
+        if (text && text.trim()) {
+          await handleText(text.trim());
+          return;
+        }
+      } catch (err) {
+        console.warn("Server transcription failed, falling back to browser transcript:", err);
+      }
+    }
+
+    if (activeText) {
+      await handleText(activeText);
       return;
     }
 
-    if (!clip) {
-      toast.error(t("voice.noSpeech"));
-      return;
-    }
-    setStage("transcribing");
-    try {
-      const body = new FormData();
-      body.append("audio", clip, "recording.wav");
-      body.append("language", locale === "hi-en" ? "" : locale);
-      const { text } = await transcribe({ data: body });
-      await handleText(text);
-    } catch (err) {
-      console.error("STT error:", err);
-      toast.error(t("voice.noSpeech"));
-      setStage("capture");
-    }
+    setStage("capture");
   };
 
   const draftFrom = (interpretation: Interpretation): ManualDraft => ({
@@ -199,24 +242,63 @@ export function VoiceSheet({
     if (amount <= 0) return;
 
     const onCredit = result.onCredit || result.paymentMethod === "credit";
-    const finalPartyName =
-      partyInput.trim() || (result.type === "sale" && !onCredit ? "Cash / Anonymous" : partyInput.trim());
+    const defaultParty =
+      result.type === "sale"
+        ? (locale === "hi" ? "नकद ग्राहक (Anonymous)" : "Cash / Anonymous")
+        : result.type === "purchase"
+          ? (locale === "hi" ? "सप्लायर / नकद (Anonymous)" : "Cash / Anonymous Vendor")
+          : result.type === "expense"
+            ? null
+            : (locale === "hi" ? "अज्ञात (Anonymous)" : "Anonymous");
 
-    const needsParty =
-      (result.type === "sale" && onCredit) ||
-      result.type === "purchase" ||
-      result.type === "payment_in" ||
-      result.type === "payment_out";
-    if (needsParty && !finalPartyName) return;
+    const finalPartyName = partyInput.trim() || defaultParty;
+
+    // Handle batch multi-transaction saves
+    if (result.items && result.items.length > 1) {
+      let savedCount = 0;
+      for (const item of result.items) {
+        if (!item.amount || item.amount <= 0) continue;
+        const itemParty = item.partyName || finalPartyName;
+        const isCust = item.type === "sale" || item.type === "payment_in";
+        let cId: string | null = null;
+        let vId: string | null = null;
+        if (itemParty) {
+          const party = await resolveParty(isCust ? "customers" : "vendors", business.id, itemParty);
+          if (isCust) cId = party?.id ?? null;
+          else vId = party?.id ?? null;
+        }
+        await createTransaction.mutateAsync({
+          business_id: business.id,
+          type: item.type,
+          amount: item.amount,
+          amount_paid: item.type === "payment_in" || item.type === "payment_out" ? item.amount : onCredit ? 0 : item.amount,
+          payment_method: onCredit ? "credit" : "cash",
+          category: item.type === "expense" ? "misc" : null,
+          customer_id: cId,
+          vendor_id: vId,
+          party_name: itemParty || null,
+          notes: item.notes ?? result.notes ?? null,
+          source: "voice",
+          ai_confidence: result.confidence,
+        });
+        savedCount++;
+      }
+      toast.success(locale === "hi" ? `${savedCount} एंट्रीज़ सेव हो गईं` : `${savedCount} entries saved`);
+      speakText(
+        locale === "hi" ? `${savedCount} लेन-देन सेव हो गए` : `${savedCount} entries save ho gayi`,
+        result.language,
+      );
+      return;
+    }
 
     const isCustomer = result.type === "sale" || result.type === "payment_in";
     let customerId: string | null = null;
     let vendorId: string | null = null;
-    if (finalPartyName) {
+    if (partyInput.trim()) {
       const party = await resolveParty(
         isCustomer ? "customers" : "vendors",
         business.id,
-        finalPartyName,
+        partyInput.trim(),
       );
       if (isCustomer) customerId = party?.id ?? null;
       else vendorId = party?.id ?? null;
@@ -390,13 +472,17 @@ export function VoiceSheet({
                     : recorder.error === "failed" || !recorder.supported
                       ? t("voice.unsupported")
                       : recorder.recording
-                        ? t("voice.listening")
+                        ? recorder.liveTranscript || t("voice.listening")
                         : ""}
               </p>
 
-              {recorder.recording ? (
-                <Button size="lg" className="w-full" onClick={() => void stopAndProcess()}>
-                  <Check className="mr-1 size-5" aria-hidden />
+              {(recorder.recording || recorder.hasSpeech || recorder.liveTranscript) ? (
+                <Button
+                  size="lg"
+                  className="h-13 w-full bg-emerald-600 text-lg font-semibold text-white shadow-md hover:bg-emerald-700 active:scale-98 transition-all"
+                  onClick={() => void stopAndProcess()}
+                >
+                  <Check className="mr-2 size-6" aria-hidden />
                   {t("common.confirm")}
                 </Button>
               ) : null}
@@ -447,11 +533,53 @@ export function VoiceSheet({
 
           {stage === "answer" ? (
             <div className="space-y-4">
-              <p className="whitespace-pre-line rounded-2xl bg-primary-soft p-4 text-base font-medium text-primary">
-                {answer}
-              </p>
+              <div className="rounded-2xl bg-primary-soft p-4 text-primary">
+                <div className="flex items-center justify-between border-b border-primary/20 pb-2 mb-3">
+                  <span className="text-xs font-bold uppercase tracking-wider">
+                    {t("assistant.title")}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      if (speaking || isSpeaking()) {
+                        stopSpeaking();
+                        setSpeaking(false);
+                      } else {
+                        setSpeaking(true);
+                        speakText(answer, locale, () => setSpeaking(false));
+                      }
+                    }}
+                    className="h-8 gap-1.5 rounded-xl px-2.5 text-xs font-semibold text-primary hover:bg-primary/10"
+                  >
+                    {speaking ? (
+                      <>
+                        <VolumeX className="size-4 animate-pulse" />
+                        <span>Mute / Stop</span>
+                      </>
+                    ) : (
+                      <>
+                        <Volume2 className="size-4" />
+                        <span>{t("insights.listen")}</span>
+                      </>
+                    )}
+                  </Button>
+                </div>
+                <p className="whitespace-pre-line text-base font-medium leading-relaxed">
+                  {answer}
+                </p>
+              </div>
               <p className="text-xs text-muted-foreground">{t("assistant.hint")}</p>
-              <Button size="lg" className="w-full" onClick={onClose}>
+              <Button
+                size="lg"
+                className="w-full"
+                onClick={() => {
+                  stopSpeaking();
+                  setSpeaking(false);
+                  onClose();
+                }}
+              >
                 {t("common.close")}
               </Button>
             </div>
@@ -467,15 +595,33 @@ export function VoiceSheet({
 
               <div className="rounded-2xl border border-border bg-card p-4">
                 {result.kind === "transaction" ? (
-                  <>
-                    <p className="text-sm font-semibold text-muted-foreground">
-                      {t(TXN_LABEL[result.type!])}
-                      {result.onCredit ? ` • ${t("txn.credit")}` : ""}
-                    </p>
-                    <p className="num mt-1 text-3xl font-bold">
-                      {Number(amountInput) > 0 ? money(Number(amountInput)) : "—"}
-                    </p>
-                  </>
+                  result.items && result.items.length > 1 ? (
+                    <div className="space-y-2">
+                      <p className="text-xs font-bold uppercase tracking-wider text-primary">
+                        {locale === "hi" ? "पहचाने गए लेन-देन (Multiple Entries)" : "Detected Multiple Entries"}
+                      </p>
+                      <div className="divide-y divide-border/60 rounded-xl bg-muted/50 p-2">
+                        {result.items.map((item, idx) => (
+                          <div key={idx} className="flex items-center justify-between py-2 px-1 text-sm font-medium">
+                            <span className="capitalize text-muted-foreground">
+                              {t(TXN_LABEL[item.type])} {item.partyName ? `(${item.partyName})` : ""}
+                            </span>
+                            <span className="num font-bold text-foreground">{money(item.amount)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-sm font-semibold text-muted-foreground">
+                        {t(TXN_LABEL[result.type!])}
+                        {result.onCredit ? ` • ${t("txn.credit")}` : ""}
+                      </p>
+                      <p className="num mt-1 text-3xl font-bold">
+                        {Number(amountInput) > 0 ? money(Number(amountInput)) : "—"}
+                      </p>
+                    </>
+                  )
                 ) : result.kind === "stock" ? (
                   <>
                     <p className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground">
@@ -599,50 +745,61 @@ export function VoiceSheet({
               {(isTxn && result.type !== "expense") || result.kind === "reminder" ? (
                 <div>
                   <label htmlFor="v-party" className="mb-1.5 block font-semibold">
-                    {missingParty ? t("voice.missingParty") : t("common.name")}
+                    {missingParty
+                      ? (locale === "hi" ? "किसके नाम पर?" : locale === "hi-en" ? "Kiske naam par?" : "Who was it with?")
+                      : (locale === "hi" ? "नाम (ज़रूरी नहीं)" : locale === "hi-en" ? "Naam (Zaroori nahi)" : "Name (Optional)")}
                   </label>
                   <Input
                     id="v-party"
                     value={partyInput}
                     onChange={(event) => setPartyInput(event.target.value)}
-                    placeholder={result?.type === "sale" ? "Cash / Anonymous (Default)" : t("common.name")}
+                    placeholder={
+                      locale === "hi"
+                        ? "Anonymous (खाली छोड़ सकते हैं)"
+                        : locale === "hi-en"
+                          ? "Anonymous / Cash (Khali chhod sakte hain)"
+                          : "Cash / Anonymous (Default)"
+                    }
                     className="h-12 text-base"
                   />
-                  {isTxn && result?.type === "sale" ? (
+                  {isTxn && (result.type === "sale" || result.type === "purchase") ? (
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       <button
                         type="button"
-                        onClick={() => setPartyInput("Cash / Anonymous")}
+                        onClick={() => setPartyInput(locale === "hi" ? "Anonymous (नकद)" : "Cash / Anonymous")}
                         className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
-                          partyInput === "Cash / Anonymous"
+                          partyInput.includes("Anonymous")
                             ? "border-primary bg-primary text-primary-foreground"
                             : "border-border bg-muted text-muted-foreground hover:bg-card"
                         }`}
                       >
-                        👤 Cash / Anonymous
+                        👤 {locale === "hi" ? "नकद / Anonymous" : "Cash / Anonymous"}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => setPartyInput("Other Sale")}
-                        className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
-                          partyInput === "Other Sale"
-                            ? "border-primary bg-primary text-primary-foreground"
-                            : "border-border bg-muted text-muted-foreground hover:bg-card"
-                        }`}
-                      >
-                        🏷️ Other Sale
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPartyInput("Walk-in Customer")}
-                        className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
-                          partyInput === "Walk-in Customer"
-                            ? "border-primary bg-primary text-primary-foreground"
-                            : "border-border bg-muted text-muted-foreground hover:bg-card"
-                        }`}
-                      >
-                        🛍️ Walk-in
-                      </button>
+                      {result.type === "sale" ? (
+                        <button
+                          type="button"
+                          onClick={() => setPartyInput(locale === "hi" ? "दुकान ग्राहक" : "Walk-in Grahak")}
+                          className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                            partyInput.includes("Walk-in") || partyInput.includes("दुकान")
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-border bg-muted text-muted-foreground hover:bg-card"
+                          }`}
+                        >
+                          🛍️ {locale === "hi" ? "दुकान ग्राहक" : "Dukaan Grahak"}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setPartyInput(locale === "hi" ? "नकद माल" : "Local Supplier")}
+                          className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                            partyInput.includes("Supplier") || partyInput.includes("माल")
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-border bg-muted text-muted-foreground hover:bg-card"
+                          }`}
+                        >
+                          📦 {locale === "hi" ? "लोकल सप्लायर" : "Local Supplier"}
+                        </button>
+                      )}
                     </div>
                   ) : null}
                 </div>

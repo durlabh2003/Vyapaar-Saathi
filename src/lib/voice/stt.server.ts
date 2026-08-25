@@ -16,11 +16,24 @@ export async function transcribe(file: File | Blob, language?: string): Promise<
   const body = new FormData();
   body.append("model", STT_MODEL);
   body.append("file", file, "recording.wav");
-  // Hinglish speech is best handled by auto-detection, so only pin pure locales.
+  body.append("temperature", "0");
+  body.append(
+    "prompt",
+    "Vyapaar Saathi transaction recording in Hindi, Hinglish, English. Merchant recording sales, expenses, cash, udhaar, payments, products."
+  );
+  // Hinglish mixed speech is best handled by auto-detection, so only pin pure locales.
   if (language === "hi" || language === "en") body.append("language", language);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
+
+  if (process.env["NODE_ENV"] !== "production") {
+    console.log("[AUDIO]", {
+      size: file.size,
+      type: file.type || "audio/wav",
+      languagePreference: language || "auto",
+    });
+  }
 
   try {
     const response = await fetch(STT_URL, {
@@ -36,8 +49,16 @@ export async function transcribe(file: File | Blob, language?: string): Promise<
       throw new TranscriptionError(`Transcription failed (${response.status})`);
     }
 
-    const data = (await response.json()) as { text?: string };
+    const data = (await response.json()) as { text?: string; language?: string };
     const text = (data.text ?? "").trim();
+
+    if (process.env["NODE_ENV"] !== "production") {
+      console.log("[STT]", {
+        detected_language: data.language ?? language ?? "auto",
+        raw_transcript: text,
+      });
+    }
+
     if (!text) throw new TranscriptionError("Nothing was heard");
     return text;
   } catch (error) {

@@ -98,9 +98,10 @@ Prefer matching party_name and product_name against these stored database entiti
         PROFIT: { kind: "question" },
         SALES_SUMMARY: { kind: "question" },
       };
-      if (intentMap[result.intent]) {
-        kind = intentMap[result.intent].kind;
-        type = intentMap[result.intent].type ?? null;
+      const mapped = intentMap[result.intent];
+      if (mapped) {
+        kind = mapped.kind;
+        type = mapped.type;
       }
     }
 
@@ -140,6 +141,7 @@ Prefer matching party_name and product_name against these stored database entiti
         typeof result.confidence === "number"
           ? Math.max(0, Math.min(result.confidence, 1))
           : local.confidence,
+      items: Array.isArray(result.items) && result.items.length > 0 ? result.items : undefined,
       language: (result.language as Interpretation["language"]) ?? local.language,
       spokenResponse: result.spoken_response ?? null,
       requiresClarification: result.requires_clarification ?? false,

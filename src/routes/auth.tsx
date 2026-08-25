@@ -11,8 +11,11 @@ import { useAuth } from "@/lib/auth";
 import { useI18n, useT, LOCALES } from "@/lib/i18n";
 
 export const Route = createFileRoute("/auth")({
-  beforeLoad: () => {
-    throw redirect({ to: "/" });
+  beforeLoad: async () => {
+    const { data } = await supabase.auth.getSession();
+    if (data.session) {
+      throw redirect({ to: "/" });
+    }
   },
   head: () => ({
     meta: [
@@ -143,15 +146,34 @@ function AuthPage() {
         </Button>
       </form>
 
-      <button
-        type="button"
-        className="text-sm font-semibold text-primary"
-        onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
-      >
-        {mode === "signin" ? t("auth.noAccount") : t("auth.haveAccount")}
-      </button>
+      <div className="flex flex-col gap-2">
+        <button
+          type="button"
+          className="text-sm font-semibold text-primary"
+          onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
+        >
+          {mode === "signin" ? t("auth.noAccount") : t("auth.haveAccount")}
+        </button>
 
-      <p className="text-xs text-muted-foreground">{t("auth.phoneNote")}</p>
+        <div className="relative my-2 flex items-center justify-center">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-border" />
+          </div>
+          <span className="relative bg-background px-3 text-xs text-muted-foreground uppercase">Or</span>
+        </div>
+
+        <Button
+          type="button"
+          variant="outline"
+          size="lg"
+          className="w-full"
+          onClick={() => void navigate({ to: "/" })}
+        >
+          ⚡ Try Demo Mode (Instant Access)
+        </Button>
+      </div>
+
+      <p className="text-xs text-muted-foreground text-center">{t("auth.phoneNote")}</p>
     </main>
   );
 }

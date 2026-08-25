@@ -27,6 +27,14 @@ export type Interpretation = {
   reminderNote?: string | null | undefined;
   confidence: number;
   language: "hi" | "en" | "hi-en";
+  items?:
+    | Array<{
+        type: TxnType;
+        amount: number;
+        partyName?: string | null | undefined;
+        notes?: string | null | undefined;
+      }>
+    | undefined;
   spokenResponse?: string | null | undefined;
   requiresClarification?: boolean | undefined;
   clarificationQuestion?: string | null | undefined;
@@ -46,14 +54,25 @@ const HINDI_DIGITS: Record<string, string> = {
 };
 
 const WORD_NUMBERS: Record<string, number> = {
-  // Colloquial & Fractional
+  // Colloquial & Fractional Modifiers
+  safa: 25,
+  सफा: 25,
+  sawa: 25,
+  sawaa: 25,
+  सवा: 25,
+  ded: 50,
+  dedh: 50,
+  deadh: 50,
+  डेढ़: 50,
+  डेढ: 50,
+  pone: 75,
+  pona: 75,
+  pauna: 75,
+  paune: 75,
+  पौने: 75,
   dhai: 2.5,
   dhaye: 2.5,
   ढाई: 2.5,
-  dedh: 1.5,
-  deadh: 1.5,
-  डेढ़: 1.5,
-  डेढ: 1.5,
 
   // Single units
   ek: 1,
@@ -182,7 +201,10 @@ const WORD_NUMBERS: Record<string, number> = {
 };
 
 function normalise(text: string): string {
+  // Deduplicate consecutive repeated words or phrases from STT stream
   let cleaned = text
+    .replace(/(\b[\w\u0900-\u097F]+\b)(?:\s+\1)+/gi, "$1")
+    .replace(/(\b[\w\u0900-\u097F]+\s+[\w\u0900-\u097F]+\b)(?:\s+\1)+/gi, "$1")
     .split("")
     .map((ch) => HINDI_DIGITS[ch] ?? ch)
     .join("")
@@ -191,47 +213,33 @@ function normalise(text: string): string {
     .replace(/,/g, "")
     .trim();
 
-  // Normalize prefix modifiers before DIGITS (e.g., "सवा 200" -> 225, "पौने 200" -> 175)
+  // Normalize Hindi compound words FIRST before individual numbers
   cleaned = cleaned
-    .replace(/\b(sawa|सवा)\s*100\b/gi, " 125 ")
-    .replace(/\b(sawa|सवा)\s*200\b/gi, " 225 ")
-    .replace(/\b(sawa|सवा)\s*300\b/gi, " 325 ")
-    .replace(/\b(sawa|सवा)\s*400\b/gi, " 425 ")
-    .replace(/\b(sawa|सवा)\s*500\b/gi, " 525 ")
-    .replace(/\b(sawa|सवा)\s*1000\b/gi, " 1250 ")
-    .replace(/\b(sawa|सवा)\s*2000\b/gi, " 2250 ")
-    .replace(/\b(paune|pone|पौने)\s*100\b/gi, " 75 ")
-    .replace(/\b(paune|pone|पौने)\s*200\b/gi, " 175 ")
-    .replace(/\b(paune|pone|पौने)\s*300\b/gi, " 275 ")
-    .replace(/\b(paune|pone|पौने)\s*400\b/gi, " 375 ")
-    .replace(/\b(paune|pone|पौने)\s*500\b/gi, " 475 ")
-    .replace(/\b(paune|pone|पौने)\s*1000\b/gi, " 750 ")
-    .replace(/\b(paune|pone|पौने)\s*2000\b/gi, " 1750 ")
-    .replace(/\b(saadhe|sadhe|साढ़े|साढे)\s*100\b/gi, " 150 ")
-    .replace(/\b(saadhe|sadhe|साढ़े|साढे)\s*200\b/gi, " 250 ")
-    .replace(/\b(saadhe|sadhe|साढ़े|साढे)\s*300\b/gi, " 350 ")
-    .replace(/\b(saadhe|sadhe|साढ़े|साढे)\s*400\b/gi, " 450 ")
-    .replace(/\b(saadhe|sadhe|साढ़े|साढे)\s*500\b/gi, " 550 ")
-    .replace(/\b(saadhe|sadhe|साढ़े|साढे)\s*1000\b/gi, " 1500 ")
-    .replace(/\b(saadhe|sadhe|साढ़े|साढे)\s*2000\b/gi, " 2500 ")
-    .replace(/\b(dhai|dhaye|ढाई)\s*100\b/gi, " 250 ")
-    .replace(/\b(dhai|dhaye|ढाई)\s*1000\b/gi, " 2500 ")
-    .replace(/\b(dedh|deadh|डेढ़|डेढ)\s*100\b/gi, " 150 ")
-    .replace(/\b(dedh|deadh|डेढ़|डेढ)\s*1000\b/gi, " 1500 ");
+    .replace(/(?:^|\s)(dedh|ded|deadh|डेढ़|डेढ|डेड)\s*(hazar|hazaar|हजार|हज़ार)(?=\s|$)/gi, " 1500 ")
+    .replace(/(?:^|\s)(dhai|dhaye|ढाई|ढाइ)\s*(hazar|hazaar|हजार|हज़ार)(?=\s|$)/gi, " 2500 ")
+    .replace(/(?:^|\s)(dedh|ded|deadh|डेढ़|डेढ|डेड)\s*(sau|so|सौ)(?=\s|$)/gi, " 150 ")
+    .replace(/(?:^|\s)(dhai|dhaye|ढाई|ढाइ)\s*(sau|so|सौ)(?=\s|$)/gi, " 250 ")
+    .replace(/(?:^|\s)(dedh|ded|deadh|डेढ़|डेढ|डेड)\s*(lakh|laakh|लाख)(?=\s|$)/gi, " 150000 ")
+    .replace(/(?:^|\s)(dhai|dhaye|ढाई|ढाइ)\s*(lakh|laakh|लाख)(?=\s|$)/gi, " 250000 ")
+    .replace(/(?:^|\s)(saadhe|sadhe|साढ़े|साढे)\s*(teen|तीन)\s*(hazar|hazaar|हजार|हज़ार)(?=\s|$)/gi, " 3500 ")
+    .replace(/(?:^|\s)(saadhe|sadhe|साढ़े|साढे)\s*(char|chaar|चार)\s*(hazar|hazaar|हजार|हज़ार)(?=\s|$)/gi, " 4500 ")
+    .replace(/(?:^|\s)(saadhe|sadhe|साढ़े|साढे)\s*(paanch|panch|पांच|पाँच)\s*(hazar|hazaar|हजार|हज़ार)(?=\s|$)/gi, " 5500 ")
+    .replace(/(?:^|\s)(paune|pone|pona|पौने|पौना)\s*(do|दो)\s*(hazar|hazaar|हजार|हज़ार)(?=\s|$)/gi, " 1750 ")
+    .replace(/(?:^|\s)(sawa|safa|सवा|सफा)\s*(do|दो)\s*(hazar|hazaar|हजार|हज़ार)(?=\s|$)/gi, " 2250 ")
+    .replace(/(?:^|\s)(sawa|safa|सवा|सफा)\s*(hazar|hazaar|हजार|हज़ार)(?=\s|$)/gi, " 1250 ")
+    .replace(/(?:^|\s)(paune|pone|pona|पौने|पौना)\s*(hazar|hazaar|हजार|हज़ार)(?=\s|$)/gi, " 750 ")
+    .replace(/(?:^|\s)(saadhe|sadhe|साढ़े|साढे)\s*(teen|तीन)\s*(sau|so|सौ)(?=\s|$)/gi, " 350 ")
+    .replace(/(?:^|\s)(saadhe|sadhe|साढ़े|साढे)\s*(char|chaar|चार)\s*(sau|so|सौ)(?=\s|$)/gi, " 450 ")
+    .replace(/(?:^|\s)(saadhe|sadhe|साढ़े|साढे)\s*(paanch|panch|पांच|पाँच)\s*(sau|so|सौ)(?=\s|$)/gi, " 550 ")
+    .replace(/(?:^|\s)(paune|pone|pona|पौने|पौना)\s*(do|दो)\s*(sau|so|सौ)(?=\s|$)/gi, " 175 ")
+    .replace(/(?:^|\s)(paune|pone|pona|पौने|पौना)\s*(sau|so|सौ)(?=\s|$)/gi, " 75 ")
+    .replace(/(?:^|\s)(sawa|safa|सवा|सफा)\s*(sau|so|सौ)(?=\s|$)/gi, " 125 ")
+    .replace(/(?:^|\s)(sawa|safa|सवा|सफा)\s*(do|दो)\s*(sau|so|सौ)(?=\s|$)/gi, " 225 ");
 
-  // Normalize prefix modifiers before HINDI WORDS (e.g. "सवा दो सौ" -> 225, "सवा सौ" -> 125)
+  // Standalone dedh / dhai
   cleaned = cleaned
-    .replace(/\b(dhai|dhaye|ढाई)\s*(sau|so|सौ)\b/gi, " 250 ")
-    .replace(/\b(dedh|deadh|डेढ़|डेढ)\s*(sau|so|सौ)\b/gi, " 150 ")
-    .replace(/\b(dhai|dhaye|ढाई)\s*(hazar|hazaar|हजार|हज़ार)\b/gi, " 2500 ")
-    .replace(/\b(dedh|deadh|डेढ़|डेढ)\s*(hazar|hazaar|हजार|हज़ार)\b/gi, " 1500 ")
-    .replace(/\b(saadhe|sadhe|साढ़े|साढे)\s*(teen|तीन)\s*(sau|so|सौ)\b/gi, " 350 ")
-    .replace(/\b(saadhe|sadhe|साढ़े|साढे)\s*(char|chaar|चार)\s*(sau|so|सौ)\b/gi, " 450 ")
-    .replace(/\b(saadhe|sadhe|साढ़े|साढे)\s*(paanch|panch|पांच|पाँच)\s*(sau|so|सौ)\b/gi, " 550 ")
-    .replace(/\b(paune|pone|पौने)\s*(do|दो)\s*(sau|so|सौ)\b/gi, " 175 ")
-    .replace(/\b(paune|pone|पौने)\s*(sau|so|सौ)\b/gi, " 75 ")
-    .replace(/\b(sawa|सवा)\s*(sau|so|सौ)\b/gi, " 125 ")
-    .replace(/\b(sawa|सवा)\s*(do|दो)\s*(sau|so|सौ)\b/gi, " 225 ");
+    .replace(/(?:^|\s)(dedh|ded|deadh|डेढ़|डेढ|डेड)(?=\s|$)/gi, " 1.5 ")
+    .replace(/(?:^|\s)(dhai|dhaye|ढाई|ढाइ)(?=\s|$)/gi, " 2.5 ");
 
   // Unstick STT merged words (e.g. "दूधबेच" -> "दूध बेच", "सामानभेजा" -> "सामान भेजा")
   cleaned = cleaned
@@ -304,11 +312,13 @@ const CATEGORY_HINTS: { category: string; words: RegExp }[] = [
 const QUESTION_HINTS =
   /\?|kitna|kitne|kaisi|kaise|kaun|konsa|compare|dikhao|दिखाओ|कितना|कितने|कौन|कैसी|how much|how many|who|which|show|report|profit hua|top|highest|owe/;
 
-const PAYMENT_IN = /(se|से)\s|aaye|आए|mila|मिला|received|payment (aaya|received)|jama|जमा/;
-const PAYMENT_OUT = /(ko|को)\s.*(diye|दिए|paid|chukaye|चुकाए)|payment kiya|bhugtan|भुगतान/;
+const PAYMENT_IN =
+  /(se|से)\s|aaye|आए|aaya|आया|mila|मिला|mile|मिले|received|receive|got|jama|जमा|(?:received|got|collected)\b/i;
+const PAYMENT_OUT =
+  /(ko|को)\s.*(diye|दिए|diya|दिया|de|दी|paid|pay|chukaye|चुकाए|bheja|भेजा|bheje|भेजे|transfer|transferred)|payment (kiya|diya|made|sent)|bhugtan|भुगतान|\b(?:gave|given|paid|pay|transferred|sent)\b/i;
 const EXPENSE = /kharch|खर्च|expense|kharcha|खर्चा|lag gaye|lage/;
-const PURCHASE = /kharid|खरीद|purchase|liya|लिया|mangwaya|मंगवाया/;
-const SALE = /becha|बेचा|beche|बेचे|bikri|बिक्री|sale|sold|diya|दिया|de diya|दे दिया|bheja|भेजा|bhej|भेज/;
+const PURCHASE = /kharid|खरीद|purchase|mangwaya|मंगवाया/;
+const SALE = /becha|बेचा|beche|बेचे|bikri|बिक्री|sale|sold|bheja|भेजा|bhej|भेज|maal diya|माल दिया|saman diya|सामान दिया/;
 const CREDIT = /udhaar|उधार|udhar|credit|baki|बाकी|likh (do|dena)|खाते में/;
 const REMINDER = /yaad dila|याद दिला|remind|reminder|yaad rakh|याद रख/;
 const STOCK =
@@ -398,39 +408,138 @@ function tomorrowMorning(): string {
 
 function extractParty(text: string): string | null {
   const patterns = [
-    // eslint-disable-next-line no-misleading-character-class
-    /([a-z\u0900-\u097F]+)\s*(?:ko|को)\b/,
-    // eslint-disable-next-line no-misleading-character-class
-    /([a-z\u0900-\u097F]+)\s*(?:se|से)\b/,
-    // eslint-disable-next-line no-misleading-character-class
-    /(?:to|for|from)\s+([a-z\u0900-\u097F]+)/,
+    /([a-z\u0900-\u097F]{2,})(?:\s+(?:ji|जी|bhai|bhaiya|sir|uncle))?\s+(?:ne|ने)(?:\s|$)/i,
+    /([a-z\u0900-\u097F]{2,})(?:\s+(?:ji|जी|bhai|bhaiya|sir|uncle))?\s+(?:ko|को)(?:\s|$)/i,
+    /([a-z\u0900-\u097F]{2,})(?:\s+(?:ji|जी|bhai|bhaiya|sir|uncle))?\s+(?:se|से)(?:\s|$)/i,
+    /([a-z\u0900-\u097F]{2,})(?:\s+(?:ji|जी|bhai|bhaiya|sir|uncle))?\s+(?:ka|ki|ke|का|की|के)(?:\s|$)/i,
+    /(?:to|for|from|paid to|given to|received from|by)\s+([a-z\u0900-\u097F]{2,})/i,
   ];
   const stop = new Set([
     "aaj",
     "kal",
     "maal",
+    "saman",
+    "saaman",
     "paise",
     "rupaye",
+    "rupyee",
+    "rupie",
+    "rupiye",
     "rupee",
+    "rupees",
+    "rs",
+    "k",
     "mujhe",
+    "main",
+    "maine",
     "hum",
+    "humne",
+    "ham",
+    "hamne",
     "aap",
+    "aapne",
     "ye",
     "yeh",
     "wo",
+    "usne",
+    "unhone",
+    "ji",
+    "जी",
+    "bhai",
+    "भाई",
+    "bhaiya",
+    "भैया",
+    "sir",
+    "uncle",
     "आज",
+    "मैंने",
+    "मैं",
+    "हम",
+    "हमने",
     "माल",
+    "सामान",
     "पैसे",
     "रुपये",
+    "रुपए",
+    "पए",
     "मुझे",
+    "becha",
+    "beche",
+    "diya",
+    "liya",
+    "lene",
+    "dene",
+    "lena",
+    "dena",
+    "लेने",
+    "देने",
+    "लेना",
+    "देना",
+    "kharch",
+    "kharcha",
+    "sale",
+    "purchase",
+    "udhar",
+    "udhaar",
+    "baki",
+    "baaki",
+    "bheja",
+    "stock",
+    "cash",
+    "upi",
+    "card",
+    "online",
+    "payment",
+    "entry",
+    "safa",
+    "sawa",
+    "sawaa",
+    "सवा",
+    "सफा",
+    "ded",
+    "dedh",
+    "deadh",
+    "डेढ़",
+    "डेढ",
+    "pone",
+    "pona",
+    "pauna",
+    "paune",
+    "पौने",
+    "पौना",
+    "hazar",
+    "hazaar",
+    "thousand",
+    "हजार",
+    "सौ",
+    "sau",
+    "so",
+    "gave",
+    "given",
+    "paid",
+    "received",
+    "got",
+    "to",
+    "from",
+    "for",
+    "i",
+    "me",
+    "you",
   ]);
+
   for (const pattern of patterns) {
     const match = text.match(pattern);
     const name = match?.[1];
-    if (name && !stop.has(name) && !/^\d+$/.test(name)) {
+    if (
+      name &&
+      !stop.has(name.toLowerCase()) &&
+      !/^\d+$/.test(name) &&
+      WORD_NUMBERS[name.toLowerCase()] === undefined
+    ) {
       return name.charAt(0).toUpperCase() + name.slice(1);
     }
   }
+
   return null;
 }
 
@@ -453,13 +562,14 @@ export function parseLocally(raw: string): Interpretation {
     };
   }
 
-  if (QUESTION_HINTS.test(text) && !EXPENSE.test(text)) {
-    return { kind: "question", question: raw, confidence: 0.7, language };
-  }
-
   const amount = extractAmount(text);
   const partyName = extractParty(text);
   const onCredit = CREDIT.test(text);
+
+  // Check for questions first: if the phrase has question indicators, treat as question
+  if (QUESTION_HINTS.test(text)) {
+    return { kind: "question", question: raw, confidence: 0.8, language };
+  }
 
   if (STOCK.test(text) && !EXPENSE.test(text) && !SALE.test(text)) {
     const quantity = extractAmount(text);
@@ -475,12 +585,50 @@ export function parseLocally(raw: string): Interpretation {
     };
   }
 
+  // --- Multi-transaction local detection ("uske baad", "phir", "and then", "aur") ---
+  const splitPattern = /(?:\s+(?:uske baad|उसके बाद|phir|फिर|and then|then)\s+)|(?:\s+(?:aur|और)\s+(?=\d|₹|[a-z\u0900-\u097F]+\s*(?:ka|ki|ke|ko|se|का|की|के|को|से)))/i;
+  const rawSegments = raw.split(splitPattern).map((s) => s.trim()).filter(Boolean);
+  if (rawSegments.length > 1) {
+    const parsedItems: Array<{ type: TxnType; amount: number; partyName?: string | null; notes?: string | null }> = [];
+    for (const segment of rawSegments) {
+      const segText = normalise(segment);
+      const segAmount = extractAmount(segText);
+      if (!segAmount || segAmount <= 0) continue;
+
+      let segType: TxnType = "sale";
+      if (PURCHASE.test(segText)) segType = "purchase";
+      else if (EXPENSE.test(segText)) segType = "expense";
+      else if (PAYMENT_OUT.test(segText)) segType = "payment_out";
+      else if (PAYMENT_IN.test(segText)) segType = "payment_in";
+      else if (SALE.test(segText)) segType = "sale";
+
+      parsedItems.push({
+        type: segType,
+        amount: segAmount,
+        partyName: extractParty(segText),
+        notes: segment,
+      });
+    }
+
+    if (parsedItems.length > 1) {
+      return {
+        kind: "transaction",
+        type: parsedItems[0]?.type ?? "purchase",
+        amount: parsedItems[0]?.amount ?? null,
+        items: parsedItems,
+        notes: raw,
+        confidence: 0.8,
+        language,
+      };
+    }
+  }
+
   let type: TxnType | undefined;
   if (EXPENSE.test(text)) type = "expense";
-  else if (PAYMENT_OUT.test(text)) type = "payment_out";
-  else if (PAYMENT_IN.test(text) && !SALE.test(text)) type = "payment_in";
-  else if (PURCHASE.test(text) && !SALE.test(text)) type = "purchase";
+  else if (PURCHASE.test(text)) type = "purchase";
   else if (SALE.test(text)) type = "sale";
+  else if (PAYMENT_OUT.test(text)) type = "payment_out";
+  else if (PAYMENT_IN.test(text)) type = "payment_in";
 
   if (!type) {
     if (QUESTION_HINTS.test(text))
@@ -501,7 +649,7 @@ export function parseLocally(raw: string): Interpretation {
       };
     }
 
-    return { kind: "question", question: raw, confidence: 0.4, language };
+    return { kind: "unknown", confidence: 0, language };
   }
 
   let category: string | null = null;

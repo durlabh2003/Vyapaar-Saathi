@@ -11,6 +11,7 @@ const utteranceSchema = z.object({
 const questionSchema = z.object({
   businessId: z.string().uuid(),
   question: z.string().trim().min(2).max(500),
+  locale: z.enum(["en", "hi", "hi-en"]).optional(),
 });
 
 const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
@@ -72,5 +73,5 @@ export const askBusinessQuestion = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { loadSnapshot, answerQuestion } = await import("@/lib/ai/answer.server");
     const snapshot = await loadSnapshot(context.supabase, data.businessId);
-    return answerQuestion(data.question, snapshot);
+    return answerQuestion(data.question, snapshot, data.locale);
   });

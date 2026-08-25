@@ -5,6 +5,27 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
+ * Font fallbacks for offline / Android WebView environments.
+ * Google Fonts are loaded via <link> at runtime; these @font-face rules
+ * ensure the UI degrades gracefully to system fonts if the CDN is unavailable.
+ */
+@font-face {
+  font-family: "Mukta";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: local("Mukta"), local("Noto Sans"), local("system-ui");
+}
+
+@font-face {
+  font-family: "Baloo 2";
+  font-style: normal;
+  font-weight: 600 700;
+  font-display: swap;
+  src: local("Baloo 2"), local("Mukta"), local("system-ui");
+}
+
+/*
  * Vyapaar design system — voice-first business assistant.
  * Warm paper background, deep-green trust primary, saffron accent.
  * All colors are oklch semantic tokens. Never hardcode colors in components.

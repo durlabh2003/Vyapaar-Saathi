@@ -128,6 +128,16 @@ export function ManualEntrySheet({
         else vendorId = party?.id ?? null;
       }
 
+      const defaultParty =
+        type === "sale"
+          ? "Cash / Anonymous"
+          : type === "purchase"
+            ? "Cash / Anonymous Vendor"
+            : type === "expense"
+              ? null
+              : "Anonymous";
+      const finalParty = partyName.trim() || defaultParty;
+
       const result = await createTransaction.mutateAsync({
         business_id: business.id,
         type,
@@ -137,7 +147,7 @@ export function ManualEntrySheet({
         category: type === "expense" ? (category ?? "misc") : null,
         customer_id: customerId,
         vendor_id: vendorId,
-        party_name: partyName.trim() || null,
+        party_name: finalParty || null,
         notes: notes.trim() || null,
         source: draft?.source ?? "manual",
         ai_confidence: draft?.confidence ?? null,
@@ -237,6 +247,31 @@ export function ManualEntrySheet({
                     }`}
                   >
                     🛍️ Walk-in
+                  </button>
+                </div>
+              ) : type === "purchase" ? (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setPartyName("Cash / Anonymous Vendor")}
+                    className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                      partyName === "Cash / Anonymous Vendor"
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-muted text-muted-foreground hover:bg-card"
+                    }`}
+                  >
+                    👤 Cash / Anonymous
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPartyName("Local Supplier")}
+                    className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                      partyName === "Local Supplier"
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-muted text-muted-foreground hover:bg-card"
+                    }`}
+                  >
+                    📦 Local Supplier
                   </button>
                 </div>
               ) : null}

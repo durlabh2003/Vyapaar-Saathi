@@ -1,15 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
-import { Send, Sparkles } from "lucide-react";
+import { Send, Sparkles, Volume2, VolumeX } from "lucide-react";
 
 import { AppShell } from "@/components/app/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { askBusinessQuestion } from "@/lib/ai/ai.functions";
 import { useBusiness } from "@/lib/data/hooks";
-import { useT } from "@/lib/i18n";
-import { speakText } from "@/lib/voice/tts";
+import { useI18n } from "@/lib/i18n";
+import { speakText, stopSpeaking, isSpeaking } from "@/lib/voice/tts";
 
 export const Route = createFileRoute("/_authenticated/assistant")({
   head: () => ({
@@ -32,13 +32,14 @@ export const Route = createFileRoute("/_authenticated/assistant")({
 type Message = { role: "user" | "assistant"; text: string };
 
 function AssistantPage() {
-  const t = useT();
+  const { t, locale } = useI18n();
   const { data: business } = useBusiness();
   const ask = useServerFn(askBusinessQuestion);
 
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [busy, setBusy] = useState(false);
+  const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -47,12 +48,37 @@ function AssistantPage() {
     setMessages((prev) => [...prev, { role: "user", text }]);
     setQuestion("");
     setBusy(true);
+    stopSpeaking();
+    setSpeakingIndex(null);
+
     try {
-      const response = await ask({ data: { businessId: business.id, question: text } });
-      setMessages((prev) => [...prev, { role: "assistant", text: response.answer }]);
-      speakText(response.answer);
+      const response = await ask({
+        data: {
+          businessId: business.id,
+          question: text,
+          locale: locale,
+        },
+      });
+      const newMessages: Message[] = [
+        ...messages,
+        { role: "user", text },
+        { role: "assistant", text: response.answer },
+      ];
+      setMessages(newMessages);
+      const answerIndex = newMessages.length - 1;
+      setSpeakingIndex(answerIndex);
+      speakText(response.answer, locale, () => setSpeakingIndex(null));
     } catch {
-      setMessages((prev) => [...prev, { role: "assistant", text: t("common.error") }]);
+      const fallbackErr = t("common.error");
+      const newMessages: Message[] = [
+        ...messages,
+        { role: "user", text },
+        { role: "assistant", text: fallbackErr },
+      ];
+      setMessages(newMessages);
+      const answerIndex = newMessages.length - 1;
+      setSpeakingIndex(answerIndex);
+      speakText(fallbackErr, locale, () => setSpeakingIndex(null));
     } finally {
       setBusy(false);
     }
@@ -86,16 +112,44 @@ function AssistantPage() {
         ) : null}
 
         {messages.map((message, index) => (
-          <p
-            key={index}
-            className={`max-w-[90%] whitespace-pre-line rounded-2xl px-4 py-3 text-base ${
-              message.role === "user"
-                ? "ml-auto bg-primary text-primary-foreground"
-                : "bg-primary-soft font-medium text-primary"
-            }`}
-          >
-            {message.text}
-          </p>
+          <div key={index} className="flex flex-col space-y-1">
+            <div
+              className={`max-w-[90%] whitespace-pre-line rounded-2xl px-4 py-3 text-base ${
+                message.role === "user"
+                  ? "ml-auto bg-primary text-primary-foreground"
+                  : "bg-primary-soft font-medium text-primary"
+              }`}
+            >
+              {message.text}
+            </div>
+            {message.role === "assistant" ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (speakingIndex === index || isSpeaking()) {
+                    stopSpeaking();
+                    setSpeakingIndex(null);
+                  } else {
+                    setSpeakingIndex(index);
+                    speakText(message.text, locale, () => setSpeakingIndex(null));
+                  }
+                }}
+                className="ml-2 flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+              >
+                {speakingIndex === index ? (
+                  <>
+                    <VolumeX className="size-3.5 animate-pulse text-destructive" />
+                    <span className="text-destructive">Stop</span>
+                  </>
+                ) : (
+                  <>
+                    <Volume2 className="size-3.5" />
+                    <span>{t("insights.listen")}</span>
+                  </>
+                )}
+              </button>
+            ) : null}
+          </div>
         ))}
 
         {busy ? (

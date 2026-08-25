@@ -12,7 +12,8 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "cap:sync": "cap sync",
-    "cap:open": "cap open android"
+    "cap:open": "cap open android",
+    "cap:build": "npm run build && node scripts/patch-capacitor-html.mjs && cap sync android"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",

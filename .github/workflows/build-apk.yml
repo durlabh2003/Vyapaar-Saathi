@@ -26,6 +26,9 @@ jobs:
       - name: Build web assets
         run: npm run build
 
+      - name: Patch index.html for Capacitor
+        run: node scripts/patch-capacitor-html.mjs
+
       - name: Sync Capacitor Android assets
         run: npx cap sync android
 
