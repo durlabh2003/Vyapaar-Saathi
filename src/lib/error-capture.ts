@@ -1,5 +1,30 @@
-// Captures the original Error out-of-band so server.ts can recover the stack
-// when h3 has already swallowed the throw into a generic 500 Response.
+// Polyfill createMiddleware for TanStack Start SSR when building for Vercel/Nitro
+function polyfillCreateMiddleware(options?: any, __opts?: any): any {
+  const resolvedOptions = {
+    type: "request",
+    ...(__opts || options),
+  };
+  const setValidator = (validator: any) =>
+    polyfillCreateMiddleware(
+      {},
+      Object.assign(resolvedOptions, { validator, inputValidator: validator })
+    );
+  return {
+    options: resolvedOptions,
+    middleware: (middleware: any) =>
+      polyfillCreateMiddleware({}, Object.assign(resolvedOptions, { middleware })),
+    validator: setValidator,
+    inputValidator: setValidator,
+    client: (client: any) =>
+      polyfillCreateMiddleware({}, Object.assign(resolvedOptions, { client })),
+    server: (server: any) =>
+      polyfillCreateMiddleware({}, Object.assign(resolvedOptions, { server })),
+  };
+}
+
+if (typeof (globalThis as any).createMiddleware !== "function") {
+  (globalThis as any).createMiddleware = polyfillCreateMiddleware;
+}
 
 let lastCapturedError: { error: unknown; at: number } | undefined;
 const TTL_MS = 5_000;
