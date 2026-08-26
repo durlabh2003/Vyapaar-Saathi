@@ -11,15 +11,6 @@ type AuthValue = {
 
 const AuthContext = createContext<AuthValue>({ session: null, user: null, loading: true });
 
-const mockUser: User = {
-  id: "00000000-0000-0000-0000-000000000000",
-  email: "demo@vyapaar.local",
-  app_metadata: {},
-  user_metadata: {},
-  aud: "authenticated",
-  created_at: new Date().toISOString(),
-};
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -29,15 +20,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(next);
       setLoading(false);
     });
+
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setLoading(false);
     });
+
     return () => sub.subscription.unsubscribe();
   }, []);
 
   return (
-    <AuthContext.Provider value={{ session, user: session?.user ?? mockUser, loading }}>
+    <AuthContext.Provider value={{ session, user: session?.user ?? null, loading }}>
       {children}
     </AuthContext.Provider>
   );
