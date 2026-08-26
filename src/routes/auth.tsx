@@ -1,5 +1,5 @@
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
   ArrowRight,
@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { lovable } from "@/integrations/lovable/index";
@@ -212,7 +211,9 @@ function AuthPage() {
             </div>
 
             <div className="mb-7">
-              <p className="mb-2 text-sm font-semibold text-primary">{mode === "signin" ? "Welcome back" : "Start your journey"}</p>
+              <p className="mb-2 text-sm font-semibold text-primary">
+                {mode === "signin" ? "Welcome back" : "Start your journey"}
+              </p>
               <h2 className="text-3xl font-black tracking-tight sm:text-4xl">
                 {mode === "signin" ? "Sign in to your account" : "Create your account"}
               </h2>
@@ -264,32 +265,30 @@ function AuthPage() {
 
             <form className="space-y-4" onSubmit={submit}>
               {mode === "signup" ? (
-                <>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <Field label="Your name" icon={<UserRound className="size-4" />}>
-                      <Input
-                        id="name"
-                        required
-                        autoComplete="name"
-                        placeholder="Rahul Sharma"
-                        value={name}
-                        onChange={(event) => setName(event.target.value)}
-                        className="h-12 rounded-xl pl-10"
-                      />
-                    </Field>
-                    <Field label="Business name" icon={<Store className="size-4" />}>
-                      <Input
-                        id="businessName"
-                        required
-                        autoComplete="organization"
-                        placeholder="Sharma General Store"
-                        value={businessName}
-                        onChange={(event) => setBusinessName(event.target.value)}
-                        className="h-12 rounded-xl pl-10"
-                      />
-                    </Field>
-                  </div>
-                </>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Your name" icon={<UserRound className="size-4" />}>
+                    <Input
+                      id="name"
+                      required
+                      autoComplete="name"
+                      placeholder="Rahul Sharma"
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
+                      className="h-12 rounded-xl pl-10"
+                    />
+                  </Field>
+                  <Field label="Business name" icon={<Store className="size-4" />}>
+                    <Input
+                      id="businessName"
+                      required
+                      autoComplete="organization"
+                      placeholder="Sharma General Store"
+                      value={businessName}
+                      onChange={(event) => setBusinessName(event.target.value)}
+                      className="h-12 rounded-xl pl-10"
+                    />
+                  </Field>
+                </div>
               ) : null}
 
               <Field label={t("auth.email")} icon={<Mail className="size-4" />}>
@@ -363,9 +362,7 @@ function AuthPage() {
 
             <div className="mt-6 flex items-start gap-2 rounded-xl bg-muted/50 p-3 text-xs leading-5 text-muted-foreground">
               <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
-              <span>
-                Your account is secured by Supabase authentication. We never store your password in the app.
-              </span>
+              <span>Your account is secured by Supabase authentication. We never store your password in the app.</span>
             </div>
 
             <div className="mt-5 flex flex-col gap-3 text-center">
@@ -400,8 +397,8 @@ function Field({
   children,
 }: {
   label: string;
-  icon: React.ReactNode;
-  children: React.ReactNode;
+  icon: ReactNode;
+  children: ReactNode;
 }) {
   return (
     <div>
