@@ -9,7 +9,6 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { BUSINESS_TYPES } from "@/lib/business/constants";
-import { seedDemoKiranaData } from "@/lib/data/demoSeeder";
 import { useBusiness } from "@/lib/data/hooks";
 import { useI18n, useT, LOCALES } from "@/lib/i18n";
 
@@ -28,7 +27,7 @@ type ProvisionedBusiness = { id: string; name: string; business_type: string; se
 function OnboardingPage() {
   const t = useT();
   const { locale, setLocale } = useI18n();
-  const { session, user } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: rawBusiness, isLoading } = useBusiness();
@@ -45,9 +44,7 @@ function OnboardingPage() {
   }, [business, navigate, name]);
 
   useEffect(() => {
-    if (user && !ownerName) {
-      setOwnerName(user.user_metadata?.full_name ?? "");
-    }
+    if (user && !ownerName) setOwnerName(user.user_metadata?.full_name ?? "");
   }, [user, ownerName]);
 
   const submit = async (event: React.FormEvent) => {
@@ -72,10 +69,6 @@ function OnboardingPage() {
           .single();
         if (error) throw error;
         businessId = (createdBiz as { id: string }).id;
-      }
-
-      if (businessId) {
-        await seedDemoKiranaData(businessId).catch(() => {});
       }
 
       await supabase.from("profiles").upsert({
