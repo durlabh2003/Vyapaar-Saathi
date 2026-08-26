@@ -98,7 +98,7 @@ function AuthPage() {
               <Button type="submit" size="lg" className="h-12 w-full rounded-xl text-base font-bold" disabled={busy}>{busy ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}{!busy ? <ArrowRight className="size-5" /> : null}</Button>
             </form>
             <div className="mt-6 flex items-start gap-2 rounded-xl bg-muted/50 p-3 text-xs leading-5 text-muted-foreground"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" /><span>Your account is secured by Supabase authentication. We never store your password in the app.</span></div>
-            <div className="mt-5 flex flex-col gap-3 text-center"><button type="button" className="text-sm font-semibold text-primary hover:underline" onClick={() => switchMode(mode === "signin" ? "signup" : "signin")}>{mode === "signin" ? t("auth.noAccount") : t("auth.haveAccount")}</button><Button type="button" variant="ghost" size="sm" className="mx-auto text-muted-foreground" onClick={() => void navigate({ to: "/" })}>Try Demo Mode</Button></div>
+            <div className="mt-5 text-center"><button type="button" className="text-sm font-semibold text-primary hover:underline" onClick={() => switchMode(mode === "signin" ? "signup" : "signin")}>{mode === "signin" ? t("auth.noAccount") : t("auth.haveAccount")}</button></div>
           </div>
         </section>
       </div>
