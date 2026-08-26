@@ -1,19 +1,13 @@
 #!/usr/bin/env node
 /**
- * fix-circular-ssr.mjs
+ * Post-build guard for Nitro's SSR output.
  *
- * Post-build script that patches Nitro's SSR output to fix a circular ESM
- * dependency that causes "TypeError: __exportAll is not a function" on Vercel.
+ * Nitro/rolldown can emit a circular ESM dependency where one SSR chunk
+ * imports __exportAll from a sibling chunk that also imports the first chunk.
+ * Node/Vercel can evaluate that cycle before __exportAll is initialized.
  *
- * Root cause:
- *   Nitro/rolldown splits the server bundle into two chunks:
- *     A) server-XXXX.mjs  — defines __exportAll, imports from B
- *     B) server-XXXX2.mjs — imports __exportAll from A, but A also imports B
- *   This cycle means __exportAll is `undefined` when B first evaluates it
- *   at module-init time on Node.js (Vercel serverless runtime).
- *
- * Fix: find whichever SSR chunk imports "{ n as __exportAll }" from a sibling
- * chunk and inline the definition directly so the import is not needed.
+ * We inline the small helper into the importing chunk so the generated
+ * server bundle does not depend on that initialization cycle.
  */
 
 import { readdir, readFile, writeFile } from "node:fs/promises";
@@ -31,29 +25,54 @@ var __exportAll = (all, no_symbols) => {
 const IMPORT_PATTERN = /import \{ n as __exportAll \} from "\.\/server-[^"]+\.mjs";/;
 
 async function patchDir(dir) {
-  if (!existsSync(dir)) return;
+  if (!existsSync(dir)) return false;
+
+  let patchedAny = false;
   const files = await readdir(dir);
+
   for (const file of files) {
     if (!file.endsWith(".mjs")) continue;
+
     const filePath = join(dir, file);
     const content = await readFile(filePath, "utf-8");
     const match = content.match(IMPORT_PATTERN);
+
     if (!match) continue;
+
     const patched = content.replace(match[0], EXPORT_ALL_INLINE);
     await writeFile(filePath, patched, "utf-8");
-    console.log(`[fix-circular-ssr] ✓ Patched circular __exportAll import in ${file}`);
+    patchedAny = true;
+    console.log(`[fix-circular-ssr] patched ${file}`);
   }
+
+  return patchedAny;
 }
 
-// Patch all known output locations (cloudflare-module, vercel preset, etc.)
 const candidates = [
   ".output/server/_ssr",
   ".vercel/output/functions/__nitro.func/_ssr",
   ".vercel/output/functions/nitro.func/_ssr",
 ];
 
-for (const dir of candidates) {
-  await patchDir(join(process.cwd(), dir));
+let foundOutput = false;
+let patched = false;
+
+for (const candidate of candidates) {
+  const dir = join(process.cwd(), candidate);
+  if (!existsSync(dir)) continue;
+
+  foundOutput = true;
+  patched = (await patchDir(dir)) || patched;
 }
 
-console.log("[fix-circular-ssr] Done.");
+if (!foundOutput) {
+  console.error("[fix-circular-ssr] ERROR: no Nitro SSR output directory was found.");
+  console.error("[fix-circular-ssr] Refusing to silently continue with an unverified SSR build.");
+  process.exit(1);
+}
+
+console.log(
+  patched
+    ? "[fix-circular-ssr] Circular SSR import patched."
+    : "[fix-circular-ssr] No circular __exportAll import detected; SSR output is unchanged.",
+);
