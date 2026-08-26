@@ -22,7 +22,7 @@ export const Route = createFileRoute("/_authenticated/onboarding")({
   component: OnboardingPage,
 });
 
-type ProvisionedBusiness = { id: string; name: string; business_type: string; setup_complete?: boolean };
+type ProvisionedBusiness = { id: string; name: string; business_type: string };
 
 function OnboardingPage() {
   const t = useT();
@@ -39,7 +39,7 @@ function OnboardingPage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (business?.setup_complete) void navigate({ to: "/" });
+    if (business && business.name !== "My Business") void navigate({ to: "/" });
     if (business && !name) setName(business.name === "My Business" ? "" : business.name);
   }, [business, navigate, name]);
 
@@ -49,33 +49,34 @@ function OnboardingPage() {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!user) return;
+    if (!user || !name.trim()) return;
     setBusy(true);
     try {
-      let businessId = business?.id;
+      const businessId = business?.id;
 
       if (businessId) {
         const { error } = await supabase
           .from("businesses")
-          .update({ name: name.trim(), business_type: type, language: locale, setup_complete: true } as never)
+          .update({ name: name.trim(), business_type: type, language: locale } as never)
           .eq("id", businessId)
           .eq("owner_id", user.id);
         if (error) throw error;
       } else {
         const { data: createdBiz, error } = await supabase
           .from("businesses")
-          .insert({ owner_id: user.id, name: name.trim(), business_type: type, language: locale, setup_complete: true } as never)
+          .insert({ owner_id: user.id, name: name.trim(), business_type: type, language: locale } as never)
           .select("id")
           .single();
         if (error) throw error;
-        businessId = (createdBiz as { id: string }).id;
+        if (!createdBiz) throw new Error("Business could not be created.");
       }
 
-      await supabase.from("profiles").upsert({
+      const { error: profileError } = await supabase.from("profiles").upsert({
         id: user.id,
         full_name: ownerName.trim() || null,
         preferred_language: locale,
       } as never);
+      if (profileError) throw profileError;
 
       await queryClient.invalidateQueries({ queryKey: ["business"] });
       void navigate({ to: "/" });
