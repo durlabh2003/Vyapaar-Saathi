@@ -10,16 +10,23 @@ export default defineConfig({
   vite: {
     plugins: [
       {
-        // Fix: @tanstack/start-client-core's createCsrfMiddleware calls createMiddleware()
-        // internally during module initialization, which is tree-shaken out in SSR bundles.
-        // We replace the entire module at build time with safe no-ops.
+        // TanStack Start 1.168.x can evaluate createCsrfMiddleware during SSR
+        // bundling even though createMiddleware is tree-shaken from the SSR
+        // runtime. Replace only that generated module with compatible no-ops.
         // See: https://github.com/TanStack/router/issues/7460
         name: "fix-tanstack-start-csrf-bug",
         enforce: "pre",
-        transform(_code: string, id: string) {
-          if (id.includes("createCsrfMiddleware")) {
-            return {
-              code: `
+        transform(code: string, id: string) {
+          if (!id.includes("createCsrfMiddleware")) return;
+
+          // Avoid replacing unrelated application files whose names happen to
+          // contain the same text. Only rewrite the TanStack Start module.
+          if (!id.includes("@tanstack") || !code.includes("createCsrfMiddleware")) {
+            return;
+          }
+
+          return {
+            code: `
 export const createCsrfMiddleware = () => ({
   options: { type: 'request' },
   middleware: () => ({}),
@@ -31,19 +38,14 @@ export const csrfSymbol = Symbol.for('tanstack-start:csrf-middleware');
 export const getCsrfRequestValidationResult = async () => true;
 export const isCsrfRequestAllowed = async () => true;
 `,
-              map: null,
-            };
-          }
+            map: null,
+          };
         },
       },
     ],
   },
-  // NOTE: Do NOT set tanstackStart.server.entry to a custom server.ts.
-  // Using a custom server entry creates an ESM circular dependency in Nitro's
-  // output chunks (server-xxx.mjs <-> server-xxx2.mjs) where __exportAll is not
-  // yet defined when first called, causing "TypeError: __exportAll is not a function"
-  // on Vercel's serverless runtime. The remaining circular dep from Nitro itself is
-  // patched by scripts/fix-circular-ssr.mjs which runs after vite build in package.json.
+  // Do not set tanstackStart.server.entry to a custom server.ts. A custom
+  // entry previously created an ESM cycle in Nitro's Vercel output.
   nitro: {
     preset: process.env["VERCEL"] ? "vercel" : "cloudflare-module",
   },
